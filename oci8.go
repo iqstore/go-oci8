@@ -657,11 +657,21 @@ func (c *OCI8Conn) ping(ctx context.Context) error {
 }
 
 func (c *OCI8Conn) Begin() (driver.Tx, error) {
-	return c.begin(context.Background())
+	return c.begin(context.Background(), nil)
 }
 
-func (c *OCI8Conn) begin(ctx context.Context) (driver.Tx, error) {
-	if c.transactionMode != C.OCI_TRANS_READWRITE {
+// begin starts a new transaction and sets it isolation level, opts are optional and can be passed as nil.
+func (c *OCI8Conn) begin(ctx context.Context, opts *driver.TxOptions) (driver.Tx, error) {
+	txMode := c.transactionMode
+	if opts != nil {
+		var err error
+		txMode, err = getTransactionModeFromOpts(opts)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if txMode != C.OCI_TRANS_READWRITE {
 		var th unsafe.Pointer
 		if rv := C.WrapOCIHandleAlloc(
 			c.env,
@@ -685,13 +695,33 @@ func (c *OCI8Conn) begin(ctx context.Context) (driver.Tx, error) {
 			(*C.OCISvcCtx)(c.svc),
 			(*C.OCIError)(c.err),
 			0,
-			c.transactionMode); // C.OCI_TRANS_SERIALIZABLE C.OCI_TRANS_READWRITE C.OCI_TRANS_READONLY
+			txMode); // C.OCI_TRANS_SERIALIZABLE C.OCI_TRANS_READWRITE C.OCI_TRANS_READONLY
 		rv != C.OCI_SUCCESS {
 			return nil, ociGetError(rv, c.err)
 		}
 	}
 	c.inTransaction = true
 	return &OCI8Tx{c}, nil
+}
+
+func getTransactionModeFromOpts(opts *driver.TxOptions) (C.ub4, error) {
+	if opts == nil {
+		return C.OCI_TRANS_READWRITE, nil
+	}
+	if opts.ReadOnly {
+		return C.OCI_TRANS_READONLY, nil
+	}
+
+	switch sql.IsolationLevel(opts.Isolation) {
+	case sql.LevelDefault:
+		return C.OCI_TRANS_READWRITE, nil
+	case sql.LevelReadCommitted:
+		return C.OCI_TRANS_READWRITE, nil
+	case sql.LevelRepeatableRead, sql.LevelSerializable:
+		return C.OCI_TRANS_SERIALIZABLE, nil
+	}
+
+	return 0, fmt.Errorf("unsupported oracle transaction isolation level %d", opts.Isolation)
 }
 
 func (d *OCI8Driver) Open(dsnString string) (connection driver.Conn, err error) {
