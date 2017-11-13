@@ -188,7 +188,6 @@ WrapOCIHandleAlloc(dvoid *parrent, ub4 type, size_t extra) {
 
 static ret2ptr
 WrapOCIEnvCreate(ub4 mode, size_t extra) {
-  OCIEnv *env;
   ub2 charsetid = 0;
   ret2ptr vvv = {NULL, NULL, 0};
   void *ptr;
@@ -197,9 +196,8 @@ WrapOCIEnvCreate(ub4 mode, size_t extra) {
   } else {
     ptr = &vvv.extra;
   }
-  if (getenv("NLS_LANG") == NULL && !OCIEnvInit(&env, OCI_DEFAULT, 0, NULL)) {
-    charsetid = OCINlsCharSetNameToId(env, (const oratext*)"AL32UTF8");
-    OCIHandleFree(env, OCI_HTYPE_ENV);
+  if (getenv("NLS_LANG") == NULL) {
+    charsetid = 873; // AL32UTF8
   }
 
   vvv.rv = OCIEnvNlsCreate(
